@@ -1,21 +1,23 @@
 export default {
   async fetch(request, env, ctx) {
-    // 確保請求是 POST 方法（LINE 傳送 Webhook 都是 POST）
     if (request.method !== 'POST') {
       return new Response('Method not allowed', { status: 405 });
     }
 
     try {
       const body = await request.json();
-      
-      // 走訪 LINE 傳過來的每一個事件
+
       for (const event of body.events) {
+        // 處理使用者傳來的文字訊息
         if (event.type === 'message' && event.message.type === 'text') {
-          // 這裡可以呼叫 LINE API 回覆訊息
-          console.log('收到使用者訊息:', event.message.text);
-          
-          // 呼叫函式回覆相同的文字
-          await replyMessage(event.replyToken, `你剛剛說了: ${event.message.text}`, env.LINE_CHANNEL_ACCESS_TOKEN);
+          const userText = event.message.text;
+          console.log('收到使用者訊息:', userText);
+
+          // 1. 將使用者的文字傳給 AI 思考回答
+          const aiReply = await callGeminiAI(userText, env.GEMINI_API_KEY);
+
+          // 2. 將 AI 的回答傳回給 LINE 使用者
+          await replyMessage(event.replyToken, aiReply, env.LINE_CHANNEL_ACCESS_TOKEN);
         }
       }
 
@@ -28,7 +30,36 @@ export default {
   },
 };
 
-// 簡單的回覆 LINE 訊息函式
+// 呼叫 Gemini AI API 的函式
+async function callGeminiAI(prompt, apiKey) {
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{ text: prompt }]
+        }]
+      })
+    });
+
+    const data = await response.json();
+    
+    // 解析 AI 回傳的文字
+    if (data.candidates && data.candidates[0]?.content?.parts[0]?.text) {
+      return data.candidates[0].content.parts[0].text;
+    } else {
+      return '抱歉，AI 目前無法處理這個請求。';
+    }
+  } catch (error) {
+    console.error('AI 呼叫失敗:', error);
+    return '系統繁忙，請稍後再試！';
+  }
+}
+
+// 呼叫 LINE 回覆 API
 async function replyMessage(replyToken, text, accessToken) {
   await fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'POST',
