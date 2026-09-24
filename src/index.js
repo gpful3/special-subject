@@ -1,38 +1,44 @@
 export default {
   async fetch(request, env, ctx) {
-    // 1. 只處理 POST 請求 (LINE 傳送訊息時的請求)
-    if (request.method === "POST") {
-      const data = await request.json();
-      const events = data.events;
+    // 確保請求是 POST 方法（LINE 傳送 Webhook 都是 POST）
+    if (request.method !== 'POST') {
+      return new Response('Method not allowed', { status: 405 });
+    }
 
-      // 讀取之前設定的金鑰 (環境變數)
-      const accessToken = env.LINE_CHANNEL_ACCESS_TOKEN;
-
-      // 2. 處理收到的訊息並自動回覆 (回話機器人範例)
-      for (const event of events) {
-        if (event.type === "message" && event.message.type === "text") {
-          const userMessage = event.message.text;
-          const replyToken = event.replyToken;
-
-          // 發送回覆給 LINE
-          await fetch("https://api.line.me/v2/bot/message/reply", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${accessToken}`,
-            },
-            body: JSON.stringify({
-              replyToken: replyToken,
-              messages: [{ type: "text", text: `你剛剛說了：${userMessage}` }],
-            }),
-          });
+    try {
+      const body = await request.json();
+      
+      // 走訪 LINE 傳過來的每一個事件
+      for (const event of body.events) {
+        if (event.type === 'message' && event.message.type === 'text') {
+          // 這裡可以呼叫 LINE API 回覆訊息
+          console.log('收到使用者訊息:', event.message.text);
+          
+          // 呼叫函式回覆相同的文字
+          await replyMessage(event.replyToken, `你剛剛說了: ${event.message.text}`, env.LINE_CHANNEL_ACCESS_TOKEN);
         }
       }
 
-      return new Response("OK", { status: 200 });
+      return new Response(JSON.stringify({ status: 'success' }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (err) {
+      return new Response(err.message, { status: 500 });
     }
-
-    // GET 請求時顯示提示
-    return new Response("這是 LINE Bot Webhook 節點");
   },
 };
+
+// 簡單的回覆 LINE 訊息函式
+async function replyMessage(replyToken, text, accessToken) {
+  await fetch('https://api.line.me/v2/bot/message/reply', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      replyToken: replyToken,
+      messages: [{ type: 'text', text: text }],
+    }),
+  });
+}
